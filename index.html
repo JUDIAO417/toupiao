@@ -231,7 +231,7 @@
   <div class="view" id="viewVote">
     <section class="card">
       <h2><span class="dot"></span>MOD 投票 · 想玩哪个选哪个</h2>
-      <div class="vote-summary" id="voteSummary">每人总共可投 1 票，投票后不可更改，刷新页面不会重置。</div>
+      <div class="vote-summary" id="voteSummary">每人总共可投 1 票，投票后不可更改。</div>
       <div class="mod-list" id="modList"></div>
       <div class="empty-mod" id="emptyMod" style="display:none">还没有可投票的 MOD，等管理员添加吧</div>
     </section>
@@ -371,7 +371,7 @@
       for(var i=0;i<mods.length;i++){ if(mods[i].id === mine.modId){ myMod = mods[i]; break; } }
       sum.innerHTML = '你已投票：<b>' + esc(myMod ? myMod.name : "（该 MOD 已删除）") + '</b>　·　投票后不可更改，刷新页面不会重置投票。';
     } else {
-      sum.innerHTML = "每人总共可投 1 票，投票后不可更改，刷新页面不会重置。";
+      sum.innerHTML = "每人总共可投 1 票，投票后不可更改。";
     }
 
     var list = document.getElementById("modList");
