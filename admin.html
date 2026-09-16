@@ -306,6 +306,9 @@
    如需更换令牌，请把下面两段字符串替换成新令牌的对应部分（两处页面都要改），然后重新推送。 */
     token: ["ghp_", "V1W0JT2ershcPopuN3xTUR47axvdsK1sqiuy"].join(""),
     api: "https://api.github.com",
+    raw: function(path){
+      return "https://raw.githubusercontent.com/" + this.owner + "/" + this.repo + "/" + this.branch + "/" + path;
+    },
     headers: function(){
       return { "Authorization": "Bearer " + this.token, "Accept": "application/vnd.github+json" };
     },
