@@ -739,6 +739,8 @@
     grid.innerHTML = html;
   }
 
+  /* 画质优先压缩：最长边 1600px、质量 0.85；若单张超过 400KB 再自动降质到 0.65，
+     保证不损画质的前提下上传体积尽量小。原图小于上限时不放大。 */
   function compressImage(file, maxSide){
     return new Promise(function(resolve, reject){
       var url = URL.createObjectURL(file);
@@ -751,10 +753,17 @@
         canvas.width = w; canvas.height = h;
         var ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(function(blob){
-          if(blob) resolve(blob);
-          else reject(new Error("图片压缩失败"));
-        }, "image/jpeg", 0.78);
+        function toBlob(q){
+          return new Promise(function(res2, rej2){
+            canvas.toBlob(function(blob){
+              if(blob) res2(blob); else rej2(new Error("图片压缩失败"));
+            }, "image/jpeg", q);
+          });
+        }
+        toBlob(0.85).then(function(blob){
+          if(blob.size <= 400 * 1024) return blob;
+          return toBlob(0.65);
+        }).then(resolve, reject);
       };
       img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error("图片读取失败")); };
       img.src = url;
@@ -831,7 +840,7 @@
     showLoad(true);
 
     var tasks = pendingFiles.map(function(f, idx){
-      return compressImage(f, 1280).then(function(blob){
+      return compressImage(f, 1600).then(function(blob){
         return blobToBase64(blob).then(function(b64){
           return { name: Date.now() + "_" + idx + "_" + Math.floor(Math.random()*9999) + ".jpg", b64: b64 };
         });
