@@ -163,6 +163,7 @@
   .gal-card .meta .nm{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .gal-card .meta .nm span{color:var(--ink-soft);font-weight:500}
   .gal-card .meta .tm{font-size:11.5px;color:var(--ink-faint)}
+  .gal-card .meta .tm .dim{color:#9db1c4;margin-left:8px;font-variant-numeric:tabular-nums}
   .gal-card .ops{padding:8px 12px 12px;display:flex;gap:8px;flex-wrap:wrap}
   .loadbar{
     display:none;position:fixed;top:0;left:0;right:0;height:3px;z-index:90;
@@ -396,7 +397,7 @@
 
   var STATUS_TEXT = { pending:"待处理", processing:"处理中", fixed:"已修复", closed:"已关闭" };
   var GAL_STATUS = { pending:"待入画廊", approved:"已入画廊" };
-  var state = { data: null, sha: null };
+  var state = { data: null, sha: null, _cb: 0 };
 
   function showLoad(on){ document.getElementById("loadbar").classList.toggle("show", !!on); }
   function showErr(msg){
@@ -718,10 +719,13 @@
     empty.style.display = "none";
     var html = "";
     shown.forEach(function(r){
+      var clean = GH.raw("cmid/" + encodeURIComponent(r.file));
+      var disp = clean + (clean.indexOf("?") > -1 ? "&" : "?") + "v=" + (state._cb || 0);
       html += '<div class="gal-card">'
-        + '<div class="ph" title="点击图片复制直链"><img data-url="' + GH.raw("cmid/" + encodeURIComponent(r.file)) + '" src="' + GH.raw("cmid/" + encodeURIComponent(r.file)) + '" loading="lazy" alt=""><span class="hint">点击复制直链</span><span class="badge ' + (r.status === "approved" ? "g-approved" : "g-pending") + '">' + (GAL_STATUS[r.status] || "待入画廊") + '</span></div>'
+        + '<div class="ph" title="点击图片复制直链"><img data-url="' + clean + '" src="' + disp + '" loading="lazy" alt="" onload="var d=this.parentNode.parentNode.querySelector(\'.dim\'); if(d) d.textContent=this.naturalWidth+\' × \'+this.naturalHeight;">'
+        + '<span class="hint">点击复制直链</span><span class="badge ' + (r.status === "approved" ? "g-approved" : "g-pending") + '">' + (GAL_STATUS[r.status] || "待入画廊") + '</span></div>'
         + '<div class="meta"><div class="nm">' + esc(r.douyin || "-") + ' <span>· ' + esc(r.gid || "-") + '</span></div>'
-        + '<div class="tm">' + fmtTime(r.createdAt) + '</div></div>'
+        + '<div class="tm">' + fmtTime(r.createdAt) + ' <span class="dim">读取分辨率…</span></div></div>'
         + '<div class="ops">'
         + (r.status !== "approved"
             ? '<button class="btn small green" data-ap="' + esc(r.id) + '">设为已入画廊</button>'
@@ -786,6 +790,7 @@
           }).then(function(){
             showLoad(false);
             mcz.disabled = false;
+            state._cb = Date.now(); /* 压缩后图片内容已变，强制页面重新拉取，避免 CDN/浏览器缓存显示旧图 */
             var gx = (out.w / 128).toFixed(1), gy = (out.h / 128).toFixed(1);
             toast(document.getElementById("modToast"), out.changed
               ? "已压缩为 " + out.w + "×" + out.h + "（约 " + gx + " 格 × " + gy + " 格），原图已覆盖"
