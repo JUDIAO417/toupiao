@@ -82,6 +82,7 @@
   .btn.small{width:auto;padding:7px 14px;font-size:13px;border-radius:10px;letter-spacing:0}
   .btn.warn{background:linear-gradient(160deg,#c08b55,#9a6a35)}
   .btn.green{background:linear-gradient(160deg,#5a9b77,#3c7455)}
+  .btn.blue{background:linear-gradient(160deg,#5f8fbb,#3f6f96)}
   .btn.red{background:linear-gradient(160deg,#c0766b,#96493f)}
   .toast{
     display:none;margin-top:14px;border-radius:13px;padding:12px 16px;font-size:13.5px;
@@ -372,6 +373,24 @@
             body: JSON.stringify({ message: "delete " + name, sha: file.sha, branch: self.branch })
           }).then(function(r){ return r.json(); });
         });
+    },
+    putImage: function(name, base64){
+      var self = this;
+      var path = "cmid/" + name;
+      return fetch(this.api + "/repos/" + this.owner + "/" + this.repo + "/contents/" + path, { headers: this.headers() })
+        .then(function(res){
+          if(res.status === 404) return null;
+          return res.json();
+        })
+        .then(function(file){
+          var body = { message: "update " + name, content: base64, branch: self.branch };
+          if(file && file.sha) body.sha = file.sha;
+          return fetch(self.api + "/repos/" + self.owner + "/" + self.repo + "/contents/" + path, {
+            method: "PUT",
+            headers: self.headers(),
+            body: JSON.stringify(body)
+          }).then(function(r){ return r.json(); });
+        });
     }
   };
 
@@ -421,6 +440,43 @@
         document.body.removeChild(ta);
         resolve();
       }catch(e){ reject(e); }
+    });
+  }
+  function blobToBase64(blob){
+    return new Promise(function(resolve, reject){
+      var fr = new FileReader();
+      fr.onload = function(){
+        var s = String(fr.result);
+        var i = s.indexOf("base64,");
+        resolve(i >= 0 ? s.slice(i + 7) : s);
+      };
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }
+  /* MC 格图压缩：最长边压到 768px（MC 一格 128px，最多 6 格），等比不裁切，JPEG 0.92 保证画质与体积 */
+  function compressForMC(url){
+    return new Promise(function(resolve, reject){
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function(){
+        var maxSide = 768;
+        var scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(function(blob){
+          if(blob) resolve({ blob: blob, w: w, h: h, changed: (w !== img.width || h !== img.height) });
+          else reject(new Error("图片压缩失败"));
+        }, "image/jpeg", 0.92);
+      };
+      img.onerror = function(){ reject(new Error("图片加载失败（可能被跨域拦截）")); };
+      img.src = url;
     });
   }
   function voteCounts(){
@@ -670,6 +726,7 @@
         + (r.status !== "approved"
             ? '<button class="btn small green" data-ap="' + esc(r.id) + '">设为已入画廊</button>'
             : '<button class="btn small warn" data-ap="' + esc(r.id) + '">设为待入画廊</button>')
+        + '<button class="btn small blue" data-mczip="' + esc(r.id) + '" title="压缩为最大 768×768（MC 内最多 6×6 格），覆盖原图">压成MC格图</button>'
         + '<button class="btn small red" data-gdel="' + esc(r.id) + '">删除</button>'
         + '</div></div>';
     });
@@ -709,6 +766,38 @@
         showLoad(false);
         renderGal();
         toast(document.getElementById("modToast"), "操作失败：" + err.message, true);
+      });
+      return;
+    }
+    var mcz = e.target.closest("button[data-mczip]");
+    if(mcz){
+      var id3 = mcz.dataset.mczip;
+      if(!confirm("将这张图片压缩为最大 768×768 像素（MC 一格 128px，最多 6×6 格），并覆盖原文件？")) return;
+      mcz.disabled = true;
+      showLoad(true);
+      refreshData().then(function(){
+        var rec = null;
+        (state.data.images || []).forEach(function(r){ if(r.id === id3) rec = r; });
+        if(!rec){ mcz.disabled = false; return null; }
+        var file = rec.file;
+        return compressForMC(GH.raw("cmid/" + encodeURIComponent(file))).then(function(out){
+          return blobToBase64(out.blob).then(function(b64){
+            return GH.putImage(file, b64);
+          }).then(function(){
+            showLoad(false);
+            mcz.disabled = false;
+            var gx = (out.w / 128).toFixed(1), gy = (out.h / 128).toFixed(1);
+            toast(document.getElementById("modToast"), out.changed
+              ? "已压缩为 " + out.w + "×" + out.h + "（约 " + gx + " 格 × " + gy + " 格），原图已覆盖"
+              : "图片已小于 768×768，按原尺寸重编码为 JPEG");
+            renderGal();
+          });
+        });
+      }).catch(function(err){
+        showLoad(false);
+        mcz.disabled = false;
+        renderGal();
+        toast(document.getElementById("modToast"), "压缩失败：" + err.message, true);
       });
       return;
     }
