@@ -396,6 +396,26 @@ function _dt(s){
     headers: function(){
       return { "Authorization": "Bearer " + this.token, "Accept": "application/vnd.github+json" };
     },
+    mergeData: function(remote, local){
+      /* 冲突合并：远端已有 + 本地新增（同 id 本地优先），避免整份覆盖 */
+      var keys = ["bugReports","mods","votes","images"];
+      var out = {};
+      keys.forEach(function(k){
+        var map = {}, order = [];
+        ((remote && remote[k]) || []).forEach(function(x){
+          if(x && x.id != null){ map[x.id] = x; order.push(x.id); }
+        });
+        ((local && local[k]) || []).forEach(function(x){
+          if(!x || x.id == null) return;
+          if(!(x.id in map)) order.push(x.id);
+          map[x.id] = x;
+        });
+        out[k] = order.map(function(id){ return map[id]; });
+      });
+      Object.keys(remote || {}).forEach(function(k){ if(!(k in out)) out[k] = remote[k]; });
+      out.updatedAt = Math.max((remote && remote.updatedAt) || 0, (local && local.updatedAt) || 0);
+      return out;
+    },
     readData: function(){
       return fetch(this.api + "/repos/" + this.owner + "/" + this.repo + "/contents/data.json", { headers: this.headers() })
         .then(function(res){
@@ -417,27 +437,42 @@ function _dt(s){
         });
     },
     writeData: function(data, sha){
-      var body = {
-        message: "update data",
-        content: btoa(unescape(encodeURIComponent(JSON.stringify(data)))),
-        branch: this.branch
-      };
-      if(sha) body.sha = sha;
-      return fetch(this.api + "/repos/" + this.owner + "/" + this.repo + "/contents/data.json", {
-        method: "PUT",
-        headers: this.headers(),
-        body: JSON.stringify(body)
-      }).then(function(res){
-        if(res.status === 409){
-          var err = new Error("数据冲突，请重试");
-          err.conflict = true;
+      var self = this, tries = 0;
+      function send(d, s){
+        var body = {
+          message: "update data",
+          content: btoa(unescape(encodeURIComponent(JSON.stringify(d)))),
+          branch: self.branch
+        };
+        if(s) body.sha = s;
+        return fetch(self.api + "/repos/" + self.owner + "/" + self.repo + "/contents/data.json", {
+          method: "PUT",
+          headers: self.headers(),
+          body: JSON.stringify(body)
+        }).then(function(res){
+          if(res.status === 409){
+            var err = new Error("数据冲突，请重试");
+            err.conflict = true;
+            throw err;
+          }
+          if(!res.ok){
+            return res.json().then(function(j){ throw new Error(j.message || "写入失败"); });
+          }
+          return res.json().then(function(j){ return { sha: j.content.sha, data: d }; });
+        });
+      }
+      function attempt(d, s){
+        return send(d, s).catch(function(err){
+          if(err.conflict && tries < 3){
+            tries++;
+            return self.readData().then(function(r){
+              return attempt(self.mergeData(r.data, d), r.sha);
+            });
+          }
           throw err;
-        }
-        if(!res.ok){
-          return res.json().then(function(j){ throw new Error(j.message || "写入失败"); });
-        }
-        return res.json().then(function(j){ return { sha: j.content.sha }; });
-      });
+        });
+      }
+      return attempt(data, sha);
     },
     putImage: function(name, base64){
       var body = {
@@ -592,9 +627,14 @@ function _dt(s){
   function saveWithRetry(attempt){
     return GH.writeData(state.data, state.sha).then(function(res){
       state.sha = res.sha;
+      if(res.data) state.data = res.data;
     }).catch(function(err){
       if(err.conflict && attempt < 2){
-        return refreshData().then(function(){ return saveWithRetry(attempt + 1); });
+        return GH.readData().then(function(r){
+          state.data = GH.mergeData(r.data, state.data);
+          state.sha = r.sha;
+          return saveWithRetry(attempt + 1);
+        });
       }
       throw err;
     });
